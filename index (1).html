@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LibraVerse – Library Management</title>
+<style>
+:root{--bg:#f6f4ef;--card:#fff;--ink:#22223b;--mut:#6b7280;--acc:#5b4bdb;--ok:#16a34a;--bad:#dc2626;--line:#e5e7eb}
+[data-t=dark]{--bg:#12121a;--card:#1c1c28;--ink:#eee;--mut:#9aa0b0;--line:#2b2b3b}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
+header{display:flex;align-items:center;gap:16px;padding:14px 24px;background:var(--acc);color:#fff;flex-wrap:wrap}
+header h1{margin:0;font-size:1.3rem;flex:1}nav button{background:none;border:0;color:#fff;padding:8px 14px;border-radius:8px;cursor:pointer;font-size:.95rem}
+nav button.on{background:rgba(255,255,255,.22)}main{max-width:1100px;margin:auto;padding:20px}
+.card{background:var(--card);border-radius:14px;padding:16px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:16px}
+.stat small{color:var(--mut)}.stat b{display:block;font-size:1.7rem;margin-top:6px}
+.row{display:flex;gap:8px;flex-wrap:wrap}input,select,button{font:inherit;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+button.p,.row button{background:var(--acc);color:#fff;border:0;cursor:pointer}button.g{background:var(--ok);color:#fff;border:0;cursor:pointer}
+#q{width:100%;margin-bottom:14px}table{width:100%;border-collapse:collapse;background:var(--card);border-radius:14px;overflow:hidden}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);font-size:.92rem}th{color:var(--mut)}
+.shelf{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:16px}
+.book{background:var(--card);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:6px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.cover{height:130px;border-radius:8px;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center;text-align:center;padding:8px;text-shadow:0 1px 3px #0006}
+.book small{color:var(--mut)}.book a{color:var(--bad);font-size:.8rem;cursor:pointer}
+.pill{font-size:.75rem;padding:3px 8px;border-radius:99px;width:fit-content;color:#fff}.pill.ok{background:var(--ok)}.pill.bad{background:var(--bad)}
+.bar{display:flex;align-items:center;gap:10px;margin:8px 0}.bar span{width:110px}.bar i{height:14px;border-radius:7px;background:linear-gradient(90deg,var(--acc),#a78bfa)}.bar em{font-style:normal;color:var(--mut)}
+.late{color:var(--bad);font-weight:600}dialog{border:0;border-radius:16px;padding:22px;background:var(--card);color:var(--ink);min-width:300px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.chips label{border:1px solid var(--line);padding:8px 12px;border-radius:99px;cursor:pointer}
+.chips input{display:none}.chips label:has(input:checked){background:var(--acc);color:#fff}
+#toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#111;color:#fff;padding:10px 18px;border-radius:99px;display:none}
+.rc{border:2px dashed var(--mut);padding:14px;border-radius:10px;font-family:monospace}
+</style></head>
+<body>
+<header><h1>📚 LibraVerse</h1>
+<nav id="nav"></nav><button onclick="dark()" style="background:none;border:0;color:#fff;cursor:pointer;font-size:1.2rem" title="Toggle theme">🌓</button></header>
+<main id="view"></main><dialog id="dlg"></dialog><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s); let w;
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function api(p,o){const r=await fetch('api/'+p,o);const d=await r.json();if(!r.ok)throw new Error(d.error||'Error');return d}
+const post=(p,o={})=>api(p,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams(o)});
+const toast=m=>{const t=$('#toast');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2500)};
+const act=async(f,tab)=>{try{await f();if(tab)show(tab)}catch(e){toast('⚠️ '+e.message)}};
+const cover=t=>{let h=0;for(const c of t)h=(h*31+c.charCodeAt(0))%360;return `linear-gradient(135deg,hsl(${h},70%,45%),hsl(${(h+50)%360},70%,35%))`};
+const v=id=>$('#'+id).value;
+function dark(){const d=document.documentElement;d.dataset.t=d.dataset.t==='dark'?'':'dark';localStorage.t=d.dataset.t}
+document.documentElement.dataset.t=localStorage.t||'';
+
+const TABS={dash:'🏠 Dashboard',books:'📖 Books',members:'👥 Members',issues:'🔄 Issue / Return',pay:'💳 Payments'};
+$('#nav').innerHTML=Object.entries(TABS).map(([k,l])=>`<button id="t-${k}" onclick="show('${k}')">${l}</button>`).join('');
+
+const T={
+async dash(){const {c,cats}=await api('stats');const max=Math.max(1,...cats.map(x=>x.n));
+ return `<div class=grid>${[['📚 Books',c.books],['👥 Members',c.members],['📤 Issued',c.issued],['⚠️ Overdue',c.overdue],['💰 Fines collected','₹'+c.collected],['🧾 Fines pending','₹'+c.pending]]
+ .map(([k,x])=>`<div class="card stat"><small>${k}</small><b>${x}</b></div>`).join('')}</div>
+ <div class=card><h3>🔥 Most borrowed categories</h3>${cats.map(x=>`<div class=bar><span>${esc(x.name)}</span><i style="width:${x.n/max*100}%"></i><em>${x.n}</em></div>`).join('')||'<p>No loans yet</p>'}</div>`},
+
+async books(){const q=$('#q')?.value||'';const b=await api('books?q='+encodeURIComponent(q));
+ return `<div class=card><h3>Add a book</h3><div class=row><input id=t placeholder=Title><input id=a placeholder=Author><input id=c placeholder=Category><input id=n type=number value=1 min=1 style="width:80px"><button onclick="act(()=>post('books',{title:v('t'),author:v('a'),category:v('c'),copies:v('n')}),'books')">Add</button></div></div>
+ <input id=q placeholder="🔍 Search title, author or category" value="${esc(q)}" oninput="clearTimeout(w);w=setTimeout(()=>show('books'),300)">
+ <div class=shelf>${b.map(x=>`<div class=book><div class=cover style="background:${cover(x.title)}">${esc(x.title)}</div><b>${esc(x.title)}</b><small>${esc(x.author)} · ${esc(x.category)}</small>
+ <span class="pill ${x.available?'ok':'bad'}">${x.available}/${x.total} available</span><a onclick="if(confirm('Delete this book?'))act(()=>post('books/delete',{id:${x.id}}),'books')">delete</a></div>`).join('')}</div>`},
+
+async members(){const m=await api('members');
+ return `<div class=card><h3>Add member</h3><div class=row><input id=n placeholder=Name><input id=e placeholder=Email><input id=p placeholder=Phone><button onclick="act(()=>post('members',{name:v('n'),email:v('e'),phone:v('p')}),'members')">Add</button></div></div>
+ <table><tr><th>Name</th><th>Email</th><th>Phone</th><th>Joined</th><th>Borrowed</th></tr>${m.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.email)}</td><td>${esc(x.phone)}</td><td>${esc(x.joined)}</td><td>${x.borrowed}</td></tr>`).join('')}</table>`},
+
+async issues(){const [i,b,m]=await Promise.all([api('issues'),api('books?q='),api('members')]);
+ return `<div class=card><h3>Issue a book <small style="color:var(--mut)">(14 days · fine ₹5/day)</small></h3><div class=row>
+ <select id=ib>${b.filter(x=>x.available>0).map(x=>`<option value=${x.id}>${esc(x.title)}</option>`).join('')}</select>
+ <select id=im>${m.map(x=>`<option value=${x.id}>${esc(x.name)}</option>`).join('')}</select>
+ <button onclick="act(()=>post('issue',{bookId:v('ib'),memberId:v('im')}),'issues')">Issue</button></div></div>
+ <table><tr><th>Book</th><th>Member</th><th>Due</th><th>Status</th><th>Fine</th><th></th></tr>${i.map(x=>`<tr><td>${esc(x.title)}</td><td>${esc(x.member)}</td><td>${x.due_date}</td>
+ <td>${x.return_date?'✅ Returned '+x.return_date:'📤 Issued'}</td><td class="${x.fine>0&&!x.fine_paid?'late':''}">₹${x.fine}</td><td>
+ ${!x.return_date?`<button class=p onclick="act(()=>post('return',{issueId:${x.id}}),'issues')">Return</button> `:''}
+ ${x.fine>0&&!x.fine_paid?`<button class=g onclick="payDlg(${x.id},${x.fine})">Pay ₹${x.fine}</button>`:x.fine_paid?'💚 Paid':''}</td></tr>`).join('')}</table>`},
+
+async pay(){const p=await api('payments');
+ return `<table><tr><th>Receipt</th><th>Member</th><th>Book</th><th>Method</th><th>Ref</th><th>Amount</th><th>Date</th></tr>${p.map(x=>`<tr><td>${x.receipt_no}</td><td>${esc(x.member)}</td><td>${esc(x.title)}</td><td>${x.method}</td><td>${esc(x.txn_ref)}</td><td>₹${x.amount}</td><td>${esc(x.paid_at)}</td></tr>`).join('')||'<tr><td colspan=7>No payments yet</td></tr>'}</table>`}
+};
+
+async function show(k){document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.id==='t-'+k));
+ try{$('#view').innerHTML=await T[k]();if(k==='books'){const e=$('#q');if(document.activeElement===document.body&&e.value){e.focus();e.setSelectionRange(999,999)}}}
+ catch(e){$('#view').innerHTML='<div class=card>⚠️ '+esc(e.message)+' — is MySQL running and schema.sql imported?</div>'}}
+
+function payDlg(id,amt){const d=$('#dlg');
+ d.innerHTML=`<h3>Pay fine ₹${amt}</h3><div class=chips>${[['Cash','💵'],['UPI','📱'],['Card','💳'],['NetBanking','🏦'],['Wallet','👛']].map(([m,i],n)=>`<label><input type=radio name=pm value=${m} ${n?'':'checked'}>${i} ${m}</label>`).join('')}</div>
+ <input id=ref placeholder="UPI ID / last 4 digits / txn ref (optional)" style="width:100%"><div class=row style="margin-top:14px"><button onclick="$('#dlg').close()" style="background:none;color:var(--ink);border:1px solid var(--line)">Cancel</button>
+ <button onclick="doPay(${id})">Confirm payment</button></div>`;d.showModal()}
+async function doPay(id){try{const r=await post('pay',{issueId:id,method:document.querySelector('input[name=pm]:checked').value,ref:v('ref')});
+ $('#dlg').innerHTML=`<h3>✅ Payment successful</h3><div class=rc>Receipt: ${r.receipt}<br>Amount : ₹${r.amount}<br>Method : ${r.method}<br>Date   : ${new Date().toLocaleString()}</div>
+ <div class=row style="margin-top:14px"><button onclick="window.print()">🖨 Print</button><button onclick="$('#dlg').close();show('issues')">Done</button></div>`}catch(e){toast('⚠️ '+e.message)}}
+show('dash');
+</script></body></html>
